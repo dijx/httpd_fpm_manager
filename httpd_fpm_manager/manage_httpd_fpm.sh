@@ -1,6 +1,13 @@
 #!/bin/bash
 
+RED='\033[0;31m'
+GRE='\033[0;32m' 
+NC='\033[0m'
 
+if [ "$EUID" -ne 0 ] ; then
+  echo -e "${RED}Please run as root${NC}"
+  exit
+fi
 
 http_conf='/etc/httpd/conf/httpd.conf'
 http_backup_dir='/root/BACKUP/famoc/httpd'
@@ -14,14 +21,6 @@ mkdir -p $http_backup_dir
 mkdir -p $fpm_backup_dir
 
 
-RED='\033[0;31m'
-GRE='\033[0;32m' 
-NC='\033[0m'
-
-if [ "$EUID" -ne 0 ] ; then
-  echo -e "${RED}Please run as root${NC}"
-  exit
-fi
 
 getFileNameFromDate() {
     echo $1$(date +%Y-%m-%d_%H-%M.%S)
