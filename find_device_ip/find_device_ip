@@ -1,0 +1,100 @@
+#!/bin/bash
+
+debug_level=0
+famoc_conf='/var/www/FamocKnox/protected/config/db.php'
+
+if [[ $EUID != 0 ]]
+then
+    echo "root access required, trying to sudo"
+    sudo ${BASH_SOURCE[0]} $*    
+    exit
+fi
+
+
+#debug level message
+function debug {
+    if [[ "$debug_level" -ge "$1" ]] ; then
+        echo "($1) $2"
+    fi
+}
+
+function getHelp {
+    echo -e "
+Usage:
+ ${BASH_SOURCE[0]} imei <number>
+ ${BASH_SOURCE[0]} id <number>
+ required: id or imei with <number>
+ optional: -d|--debug <number>
+ "    
+    exit 0
+}
+
+debug 1 "params: $*"
+
+
+#args parser
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -h|--help)
+        getHelp
+        ;;
+    -d|--debug)
+        debug_level=$2
+      shift
+      shift
+      ;;
+    imei)
+        column="imei"
+        value=$2 
+        shift
+        shift
+      ;;
+
+    id)
+        column="id"
+        value=$2
+      shift
+      shift
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+
+
+debug 2 "user=$(whoami)"
+debug 2 "column=$column"
+debug 2 "value=$value"
+debug 3 "debug=$debug_level"
+
+#trying to use aplikacje and get password from config
+db_conn=($(grep -Ei "connectionstring|username|password" $famoc_conf)) 
+db_address=$(echo ${db_conn[2]} | awk -F ["=",";"] {'print $2'}) 
+db_user=$(echo ${db_conn[5]} | cut -d"\"" -f2)
+db_pass=$(echo ${db_conn[8]} | cut -d"\"" -f2)
+debug 4 "db connection params from $famoc_conf: $db_address $db_user $db_pass"
+
+if [[ -z "$column" ]] ; then 
+    getHelp
+else
+    debug 2 "usning $column for query"
+fi
+
+sql_query=($(mysql -h $db_address -u$db_user -p$db_pass -e "select id,device_uid,imei,device_pass from mdm.tb_phone where $column = '$value'" ))
+
+if [[ ${#sql_query[*]} -gt 8 ]] ; then 
+    echo -e "
+non-uniqe IMEI (?) number, please re-run using ID:"
+    echo ${sql_query[*]} | sed "s/ /\n/4;P;D" | cut -d" " -f1,3
+    exit 0
+elif [[ ${#sql_query[*]} -lt 8 ]] ; then
+    echo -e "
+no device with $column=$value"
+    exit 0
+else
+    debug 1 "got one device: ${sql_query[*]}"
+fi
+
+
+
