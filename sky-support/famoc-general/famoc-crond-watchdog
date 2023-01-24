@@ -1,0 +1,172 @@
+#!/bin/sh
+
+# Manage FAMOC/Essentials MDM cron jobs
+# Blame: Remigiusz Anyż, January 2023
+
+
+famoc_cron_path='/opt/FAMOC/cron.d/' #MUST FINISH WITH / !!!!
+cron_path='/etc/cron.d/'             #MUST FINISH WITH / !!!!
+script_version="0.1"
+cron_file_prefix="00-"
+cron_interval=1
+own_name=$(basename ${BASH_SOURCE[0]})
+
+
+function removeLinks {
+
+   for link in $(find ${cron_path} -type l) ; do
+
+        if [[ $(readlink $link) == "${famoc_cron_path}"* ]] ; then
+            
+            unlink $link
+
+        fi
+
+    done
+
+}
+
+function syncSymlinks {
+    
+    #Create symlinks without concidering are they already existing
+
+    if  [ -d "${famoc_cron_path}" ]
+        
+        then
+
+            for file in "${famoc_cron_path}*" ; do
+                ln -s $file ${cron_path} >> /dev/null 2>&1
+            done
+
+    fi
+
+    #Remove symlinks that are invalid AND contain source path defined in $famoc_cron_path (not touching any other symlinks)
+
+    for link in $(find ${cron_path} -type l) ; do
+
+        if ! [ -f $link ] && [[ $(readlink $link) == "${famoc_cron_path}"* ]] ; then
+            
+            unlink $link
+
+        fi
+
+    done
+
+}
+
+
+
+function printHelp {
+echo -e "$own_name - manage FAMOC/ESSENTIALS MDM cron jobs
+-h, --help  
+            this help
+-v, --verison 
+            show scrpit version
+--create-watchdog (minutes)
+            create watchdog entry (${cron_path}${cron_file_prefix}${own_name}) with (minutes) interval. When no value gien, defaulut value ($cron_interval) used.
+            example: $own_name --create-wathdog 5
+--remove-watchdog
+            remove  watchdog entry (${cron_path}${cron_file_prefix}${own_name})
+--show-default
+            print default watchdog as it'd be created in
+--show-current
+            dump current watchdog (if any)
+--remove-links
+            remove all managed symlinks in ${cron_path}. Note that it does not prevent from creaing it again in watchdog cron job exists.
+
+when no arguments given, it will sync symlinks in ${cron_path} with ${famoc_cron_path}
+"
+
+}
+
+function dumpWatchdog {
+
+    watchdog_body="#FF_MANAGED_BY_${own_name}, remove this line to prevent that
+SHELL=/bin/bash
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+*/${cron_interval} * * * * root /usr/bin/${own_name}
+"
+    echo -e  "$watchdog_body"
+    exit 0
+}
+
+
+function removeWatchdog {
+
+    wd="${cron_path}${cron_file_prefix}${own_name}"
+
+    if [[ -f $wd ]] && [[ $(grep -c "^#FF_MANAGED_BY_" $wd) -gt 0 ]] ; then
+        rm -f $wd || { echo "unexped error occured (insufficient permissions or RO filesystem?" ; exit 1 ; }
+    else
+        echo "No managed file not found"
+    fi
+    exit 0
+}
+
+### ARGUMENTS parser
+
+if [[ $# = 0 ]] ; then
+    syncSymlinks
+    exit 0
+fi
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+
+    -v|--version) 
+        echo $script_version
+        exit 0
+        shift
+        ;;
+    --show-default)
+        dumpWatchdog
+        shift
+        ;;
+    
+    --show-current)
+        echo -e "\nChecking for file: ${cron_path}${cron_file_prefix}${own_name}\n"
+        cat "${cron_path}${cron_file_prefix}${own_name}" 2>/dev/null || echo "File not found"
+        exit 0
+        shift
+        ;;
+
+    --create-watchdog)
+        if ! [ -z $2 ] && [ $2 -lt 59 ] ; then
+            cron_interval=$2
+            shift
+        fi
+        dumpWatchdog > "${cron_path}${cron_file_prefix}${own_name}"
+        shift
+        ;;
+    
+    --remove-watchdog)
+      removeWatchdog
+      shift
+      ;;
+
+    --remove-links)
+      removeLinks
+      exit 0
+      shift
+      ;;
+
+    -h|--help)
+      printHelp
+      exit 0
+      shift
+      ;;
+
+
+    -*|--*)
+      echo "Unknown option: $1"
+      exit 1
+      ;;
+
+    *)
+      echo -e "garbage input: $1\nsee -h or --help"
+      exit 1
+      ;;
+  esac
+done
+echo "should not see me"
+exit 1
